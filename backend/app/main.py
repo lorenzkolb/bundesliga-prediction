@@ -32,3 +32,30 @@ def get_teams():
 def get_players(team_id: str):
     response = supabase.table("players").select("*").eq("team_id", team_id).execute()
     return response.data
+
+@app.post("/predictions")
+def create_prediction(prediction: dict):
+    # Prüfen ob Deadline bereits abgelaufen ist
+    matchday = supabase.table("matchdays").select("*").eq("id", prediction["matchday_id"]).execute()
+    
+    if not matchday.data:
+        return {"error": "Spieltag nicht gefunden"}
+    
+    deadline = matchday.data[0]["deadline"]
+    
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc).isoformat()
+    
+    if now > deadline:
+        return {"error": "Deadline abgelaufen - keine Predictions mehr möglich"}
+    
+    # Prediction speichern
+    data = {
+        "user_id": prediction["user_id"],
+        "matchday_id": prediction["matchday_id"],
+        "team_id": prediction["team_id"],
+        "player_id": prediction["player_id"]
+    }
+    
+    response = supabase.table("predictions").insert(data).execute()
+    return response.data
