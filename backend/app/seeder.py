@@ -28,3 +28,33 @@ def seed_teams():
 
 if __name__ == "__main__":
     seed_teams()
+
+
+def seed_players():
+    print("Spieler werden von OpenLiga DB abgerufen...")
+    
+    teams = supabase.table("teams").select("*").execute().data
+    
+    for team in teams:
+        response = httpx.get(f"https://api.openligadb.de/getteamdata/{team['openliga_id']}")
+        
+        if response.status_code != 200:
+            print(f"⚠️ Keine Daten für {team['name']}")
+            continue
+            
+        team_data = response.json()
+        players = team_data.get("players", [])
+        
+        for player in players:
+            data = {
+                "name": player["name"],
+                "team_id": team["id"],
+                "position": player.get("position", "Unbekannt")
+            }
+            supabase.table("players").upsert(data, on_conflict="name,team_id").execute()
+        
+        print(f"✅ {len(players)} Spieler für {team['name']} eingetragen")
+
+if __name__ == "__main__":
+    seed_teams()
+    seed_players()
