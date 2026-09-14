@@ -118,6 +118,14 @@ def calculate_scores(matchday_number: int):
     real_lineups = supabase.table("real_lineups").select("*").eq("matchday_id", matchday_id).execute()
     real_player_ids = {(r["team_id"], r["player_id"]) for r in real_lineups.data}
     
+    # Anzahl echte Spieler pro Team
+    real_players_per_team = {}
+    for r in real_lineups.data:
+        team_id = r["team_id"]
+        if team_id not in real_players_per_team:
+            real_players_per_team[team_id] = 0
+        real_players_per_team[team_id] += 1
+    
     # Alle Predictions für diesen Spieltag
     predictions = supabase.table("predictions").select("*").eq("matchday_id", matchday_id).execute()
     
@@ -130,16 +138,69 @@ def calculate_scores(matchday_number: int):
         if (pred["team_id"], pred["player_id"]) in real_player_ids:
             scores[key] += 1
     
-    # Scores speichern
+    # Scores speichern mit total_players
     for (user_id, team_id), points in scores.items():
+        total_players = real_players_per_team.get(team_id, 11)
         data = {
             "user_id": user_id,
             "matchday_id": matchday_id,
             "team_id": team_id,
-            "points": points
+            "points": points,
+            "total_players": total_players
         }
         supabase.table("scores").upsert(
             data, on_conflict="user_id,matchday_id,team_id"
         ).execute()
     
-    return {"message": f"Scores für {len(scores)} User-Team Kombinationen berechnet"}
+    return {"message": f"Scores berechnet fuer {len(scores)} User-Team Kombinationen"}
+
+@app.get("/ranking/{team_id}")
+def get_ranking(team_id: str, min_predictions: int = 1):
+    # Alle Scores für dieses Team abrufen
+    scores = supabase.table("scores").select("*").eq("team_id", team_id).execute()
+    
+    if not scores.data:
+        return []
+    
+    # Prozentsatz pro User berechnen
+    user_stats = {}
+    for score in scores.data:
+        user_id = score["user_id"]
+        if user_id not in user_stats:
+            user_stats[user_id] = {
+                "total_points": 0,
+                "total_players": 0,
+                "prediction_count": 0
+            }
+        user_stats[user_id]["total_points"] += score["points"]
+        user_stats[user_id]["total_players"] += score["total_players"]
+        user_stats[user_id]["prediction_count"] += 1
+    
+    # Ranking erstellen mit Mindestanzahl Filter
+    ranking = []
+    for user_id, stats in user_stats.items():
+        
+        # Filter: mindestens X Predictions
+        if stats["prediction_count"] < min_predictions:
+            continue
+        
+        # Durchschnittlicher Prozentsatz
+        if stats["total_players"] > 0:
+            percentage = round((stats["total_points"] / stats["total_players"]) * 100, 1)
+        else:
+            percentage = 0
+        
+        user = supabase.table("users").select("username").eq("id", user_id).execute()
+        if user.data:
+            ranking.append({
+                "username": user.data[0]["username"],
+                "percentage": percentage,
+                "prediction_count": stats["prediction_count"],
+                "total_points": stats["total_points"],
+                "total_players": stats["total_players"]
+            })
+    
+    # Nach Prozentsatz sortieren
+    ranking.sort(key=lambda x: x["percentage"], reverse=True)
+    
+    return ranking
