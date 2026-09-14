@@ -24,6 +24,42 @@ app.add_middleware(
 def root():
     return {"message": "Bundesliga Prediction API läuft!"}
 
+@app.post("/auth/register")
+def register(data: dict):
+    try:
+        response = supabase.auth.sign_up({
+            "email": data["email"],
+            "password": data["password"],
+        })
+        
+        # User auch in unsere users Tabelle eintragen
+        if response.user:
+            supabase.table("users").insert({
+                "id": str(response.user.id),
+                "username": data["username"],
+                "email": data["email"]
+            }).execute()
+        
+        return {"message": "Registrierung erfolgreich! Bitte Email bestätigen."}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.post("/auth/login")
+def login(data: dict):
+    try:
+        response = supabase.auth.sign_in_with_password({
+            "email": data["email"],
+            "password": data["password"]
+        })
+        
+        return {
+            "access_token": response.session.access_token,
+            "user_id": str(response.user.id),
+            "username": data["email"]
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 @app.get("/teams")
 def get_teams():
     response = supabase.table("teams").select("*").execute()
